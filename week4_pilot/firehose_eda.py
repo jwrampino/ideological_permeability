@@ -1,5 +1,6 @@
 import pandas as pd
 import networkx as nx
+from pathlib import Path
 
 # load data
 nodes_df = pd.read_csv("data/nodes_latest.csv")
@@ -77,3 +78,31 @@ largest_scc = max(len(c) for c in sccs) if sccs else 0
 
 print(f"strongly connected components: {len(sccs):,}")
 print(f"largest SCC size: {largest_scc:,}")
+
+# collect metrics into a dict
+metrics = {
+    "nodes": num_nodes,
+    "edges": num_edges,
+    "density": density,
+    "connected_components": num_components,
+    "largest_component_size": largest_cc_size,
+    "largest_component_fraction": largest_fraction,
+    "fragmentation": fragmentation,
+    "average_component_size": avg_comp_size,
+    "average_degree": avg_degree,
+    "max_degree": max(degrees) if degrees else 0,
+    "weakly_connected": is_weak,
+    "strongly_connected": is_strong,
+    "num_scc": len(sccs),
+    "largest_scc_size": largest_scc,
+}
+
+# save to csv in data/
+out_path = Path("data/connectivity_metrics.csv")
+
+df = pd.DataFrame([metrics])
+
+# append if file exists, otherwise create
+df.to_csv(out_path, mode="a", header=not out_path.exists(), index=False)
+
+print(f"\nSaved metrics to {out_path}")
