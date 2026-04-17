@@ -27,7 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-from atproto import FirehoseSubscribeReposClient, parse_subscribe_repos_message
+from atproto import CAR, FirehoseSubscribeReposClient, models, parse_subscribe_repos_message
+from atproto_client.models import get_or_create
 from atproto.exceptions import FirehoseError
 
 #===========================================================================#
@@ -80,9 +81,8 @@ def _author_from_uri(uri: str) -> str | None:
 # Per-record-type handlers
 #===========================================================================#
 
-def _handle_post(op, author_did: str, ts: str):
-    record = op.record
-    text = _get(record, "text", "") or ""
+def _handle_post(op, record, author_did: str, ts: str):
+    text = (_get(record, "text", "") or "").replace("\n", " ").replace("\r", " ")
     created_at = _get(record, "createdAt", ts)
     reply_block = _get(record, "reply", None)
 
@@ -126,8 +126,7 @@ def _handle_post(op, author_did: str, ts: str):
     })
 
 
-def _handle_repost(op, author_did: str, ts: str):
-    record = op.record
+def _handle_repost(op, record, author_did: str, ts: str):
     subject = _get(record, "subject", None)
     created_at = _get(record, "createdAt", ts)
 
@@ -146,8 +145,7 @@ def _handle_repost(op, author_did: str, ts: str):
             })
 
 
-def _handle_like(op, author_did: str, ts: str):
-    record = op.record
+def _handle_like(op, record, author_did: str, ts: str):
     subject = _get(record, "subject", None)
     created_at = _get(record, "createdAt", ts)
 
@@ -166,8 +164,7 @@ def _handle_like(op, author_did: str, ts: str):
             })
 
 
-def _handle_follow(op, author_did: str, ts: str):
-    record = op.record
+def _handle_follow(op, record, author_did: str, ts: str):
     subject_did = _get(record, "subject", None)
     created_at = _get(record, "createdAt", ts)
 
@@ -210,21 +207,51 @@ def handle_message(message):
     if not author_did:
         return
 
+    # decode records from CAR blocks instead of relying on op.record
+    if not hasattr(commit, "blocks") or not commit.blocks:
+        event_count += 1
+        return
+
+    try:
+        car = CAR.from_bytes(commit.blocks)
+    except Exception:
+        event_count += 1
+        return
+
     ts = datetime.now(timezone.utc).isoformat()
     _ensure_node(author_did, ts)
 
     for op in commit.ops:
-        record = getattr(op, "record", None)
-        if op.action != "create" or record is None:
+        if op.action != "create":
+            continue
+
+        cid = getattr(op, "cid", None)
+        if cid is None:
+            continue
+
+        raw = car.blocks.get(cid)
+        if raw is None:
+            continue
+
+        try:
+            record = models.get_or_create(raw, strict=False)
+            # alternatively
+            # record = get_or_create(raw, strict=False)
+        except Exception:
             continue
 
         record_type = _get(record, "$type", None)
+        if record_type is None:
+            record_type = _get(record, "py_type", None)
+        if record_type is None:
+            record_type = _get(record, "_type", None)
+
         handler = HANDLERS.get(record_type)
         if handler:
             try:
-                handler(op, author_did, ts)
+                handler(op, record, author_did, ts)
             except Exception:
-                pass  # Malformed record — skip
+                pass
 
     event_count += 1
 
@@ -250,9 +277,9 @@ def save_data(output_dir: Path) -> tuple[Path, Path, Path]:
     edges_path = output_dir / f"edges_{ts}.csv"
     posts_path = output_dir / f"posts_{ts}.csv"
 
-    pd.DataFrame(nodes.values()).to_csv(nodes_path, index=False)
-    pd.DataFrame(edges).to_csv(edges_path, index=False)
-    pd.DataFrame(posts).to_csv(posts_path, index=False)
+    pd.DataFrame(nodes.values()).to_csv(nodes_path, index=False, lineterminator="\n")
+    pd.DataFrame(edges).to_csv(edges_path, index=False, lineterminator="\n")
+    pd.DataFrame(posts).to_csv(posts_path, index=False, lineterminator="\n")
 
     # shutil.copy2 instead of symlinks
     for stem, path in [("nodes", nodes_path), ("edges", edges_path), ("posts", posts_path)]:
