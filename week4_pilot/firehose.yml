@@ -11,3 +11,5 @@ dependencies:
   - pip:
       - atproto>=0.0.54
       - python-louvain>=0.16
+      - pyvis
+      - matplotlib
