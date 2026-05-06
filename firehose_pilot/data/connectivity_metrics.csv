@@ -1,0 +1,2 @@
+nodes,edges,density,connected_components,largest_component_size,largest_component_fraction,fragmentation,average_component_size,average_degree,max_degree,weakly_connected,strongly_connected,num_scc,largest_scc_size
+22782,17612,3.393470242632082e-05,6275,8273,0.3631375647440962,0.6368624352559038,3.630597609561753,1.5461329119480292,282,False,False,22718,3
