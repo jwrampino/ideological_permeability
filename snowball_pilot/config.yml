@@ -24,7 +24,7 @@ auth:
 
 general:
   output_dir: data
-  rate_limit: 0.5                       # !!
+  rate_limit: 0.1                       # !!
   rate_limit_backoff_base: 2.0
   rate_limit_max_retries: 5
   log_level: INFO

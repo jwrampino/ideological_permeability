@@ -1,21 +1,23 @@
+import os
 import logging
-
 import yaml
 from atproto import Client
-
 from collector import crawl, derive_is_bot, fetch_labels, reservoir_sample, save
 
+with open('.env') as f:
+    for line in f:
+        if '=' in line:
+            k, v = line.strip().split('=', 1)
+            os.environ[k] = v
+
+client = Client()
+client.login(os.environ['BSKY_HANDLE'], os.environ['BSKY_PASSWORD'])
 
 def main():
     with open('config.yml') as f:
         cfg = yaml.safe_load(f)
 
     logging.basicConfig(level=getattr(logging, cfg['general']['log_level']))
-
-    client = Client()
-    auth = cfg.get('auth', {})
-    if auth.get('handle') and auth.get('password'):
-        client.login(auth['handle'], auth['password'])
 
     print('--- seed sampling')
     seeds = reservoir_sample(client, cfg)
@@ -35,7 +37,6 @@ def main():
 
     print('--- saving')
     save(nodes, edges, posts, labels, profiles, is_bot_map, cfg['general']['output_dir'])
-
 
 if __name__ == '__main__':
     main()

@@ -2,7 +2,7 @@ import random
 import shutil
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import networkx as nx
@@ -50,27 +50,62 @@ def _paginate(method, key, params, max_results, backoff_base, max_retries, rate_
 
 def reservoir_sample(client, cfg):
     """
-    Pages through listRepos and reservoir-samples a fixed number of seed DIDs, 
-    skipping inactive accounts. Feeds into crawl.
+    Scans repos, batch-verifies activity via getProfiles, and reservoir-samples
+    over confirmed active accounts only. An account is active if it has posts
+    and was indexed within min_recent_activity_days. Feeds into crawl.
     """
     s = cfg['seed']
     sample_size = s['sample_size']
     max_scan = s['max_repos_to_scan']
+    min_days = s['min_recent_activity_days']
     random.seed(s['random_seed'])
     bbase = cfg['general']['rate_limit_backoff_base']
     max_ret = cfg['general']['rate_limit_max_retries']
+    rate_limit = cfg['general']['rate_limit']
+    verify_batch_size = cfg['labels']['batch_size']
 
-    reservoir = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=min_days)
+
+    confirmed = []
+    pending = []
     n_seen = 0
+    n_active_seen = 0
     cursor = None
+
+    def verify_and_filter(dids):
+        # batch fetch profiles, keep only accounts active within min_recent_activity_days
+        active = []
+        for attempt in range(max_ret):
+            try:
+                resp = client.app.bsky.actor.get_profiles(actors=dids)
+                time.sleep(rate_limit)
+                for p in (resp.profiles or []):
+                    if (getattr(p, 'posts_count', 0) or 0) == 0:
+                        continue
+                    raw_ts = getattr(p, 'indexed_at', None)
+                    if not raw_ts:
+                        continue
+                    try:
+                        dt = datetime.fromisoformat(raw_ts.replace('Z', '+00:00'))
+                        if dt >= cutoff:
+                            active.append(p.did)
+                    except Exception:
+                        continue
+                break
+            except Exception as e:
+                print(f"  get_profiles error (attempt {attempt}): {e}")
+                if attempt < max_ret - 1:
+                    _backoff(attempt, bbase)
+        return active
 
     while n_seen < max_scan:
         resp = None
         for attempt in range(max_ret):
             try:
-                resp = client.com.atproto.sync.list_repos(limit=1000, cursor=cursor)
+                resp = client.com.atproto.sync.list_repos(params={'limit': 1000, 'cursor': cursor})
                 break
-            except Exception:
+            except Exception as e:
+                print(f"  list_repos error (attempt {attempt}): {e}")
                 if attempt < max_ret - 1:
                     _backoff(attempt, bbase)
 
@@ -82,29 +117,52 @@ def reservoir_sample(client, cfg):
             break
 
         for repo in repos:
-            # skip deactivated or suspended repos
             if getattr(repo, 'active', True) is False:
                 continue
             n_seen += 1
-            # standard reservoir; fill until full then replace at random
-            if len(reservoir) < sample_size:
-                reservoir.append(repo.did)
-            else:
-                j = random.randint(0, n_seen - 1)
-                if j < sample_size:
-                    reservoir[j] = repo.did
+            pending.append(repo.did)
+
+            if len(pending) >= verify_batch_size:
+                active = verify_and_filter(pending)
+                pending = []
+                for did in active:
+                    n_active_seen += 1
+                    if len(confirmed) < sample_size:
+                        confirmed.append(did)
+                    else:
+                        # reservoir replacement over active population only
+                        j = random.randint(0, n_active_seen - 1)
+                        if j < sample_size:
+                            confirmed[j] = did
+                print(f"  scanned {n_seen}  active={n_active_seen}  confirmed={len(confirmed)}")
+                if len(confirmed) >= sample_size:
+                    break
+
             if n_seen >= max_scan:
                 break
 
-        if n_seen % 10000 == 0:
-            print(f"  scanned {n_seen} repos  reservoir={len(reservoir)}")
+        # verify remaining pending at end of each page
+        if pending:
+            active = verify_and_filter(pending)
+            pending = []
+            for did in active:
+                n_active_seen += 1
+                if len(confirmed) < sample_size:
+                    confirmed.append(did)
+                else:
+                    j = random.randint(0, n_active_seen - 1)
+                    if j < sample_size:
+                        confirmed[j] = did
+
+        if len(confirmed) >= sample_size:
+            break
 
         cursor = getattr(resp, 'cursor', None)
         if not cursor:
             break
 
-    print(f"seed sampling done: {len(reservoir)} seeds from {n_seen} repos")
-    return reservoir
+    print(f"seed sampling done: {len(confirmed)} active seeds from {n_seen} scanned ({n_active_seen} active found)")
+    return confirmed
 
 
 # graph component check
@@ -198,25 +256,29 @@ def crawl(client, seeds, cfg):
         # outgoing follows
         follows = _paginate(
             client.app.bsky.graph.get_follows, 'follows',
-            {'actor': did, 'limit': 100}, max_nbr, bbase, max_ret
+            {'actor': did, 'limit': 100}, max_nbr, bbase, max_ret,
+            cfg['general']['rate_limit']
         )
+        print(f"  {did[:16]}  hop={hop}  follows={len(follows)}")
         for f in follows:
             nodes[did]['follow_count'] += 1
             add_neighbor(f.did, {'src': did, 'dst': f.did, 'type': 'follow', 'timestamp': t})
 
-        # incoming followers
         followers = _paginate(
             client.app.bsky.graph.get_followers, 'followers',
-            {'actor': did, 'limit': 100}, max_nbr, bbase, max_ret
+            {'actor': did, 'limit': 100}, max_nbr, bbase, max_ret,
+            cfg['general']['rate_limit']
         )
+        print(f"  {did[:16]}  hop={hop}  followers={len(followers)}")
         for f in followers:
             add_neighbor(f.did, {'src': f.did, 'dst': did, 'type': 'follow', 'timestamp': t})
 
-        # feed for reply and repost edges
         feed = _paginate(
             client.app.bsky.feed.get_author_feed, 'feed',
-            {'actor': did, 'limit': 100}, None, bbase, max_ret
+            {'actor': did, 'limit': 100}, None, bbase, max_ret,
+            cfg['general']['rate_limit']
         )
+        print(f"  {did[:16]}  hop={hop}  feed={len(feed)}")
         for item in feed:
             post = item.post
             record = post.record
