@@ -16,7 +16,6 @@ crawl:
 labels:
   labeler_dids:
     - did:plc:ar7c4by46qjdydhdevvrndac  # bluesky moderation
-    # aegis
   batch_size: 25
 
 auth:
