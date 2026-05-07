@@ -1,14 +1,14 @@
 seed:
   sample_size: 500
-  min_recent_activity_days: 30
+  min_recent_activity_days: 30          # activity bias
   random_seed: 42
   max_repos_to_scan: 100000
 
 crawl:
-  max_hops: 3
-  min_component_size: 100
-  target_num_components: 2
-  component_type: wcc        # wcc or scc
+  max_hops: 5
+  min_component_size: 100               # !!
+  target_num_components: 5              # !!
+  component_type: wcc                   # weakly (wcc) or strongly (scc)
   max_total_nodes: 50000
   component_check_interval: 500
   max_neighbors_per_node: 500
@@ -25,6 +25,7 @@ auth:
 
 general:
   output_dir: data
-  rate_limit_backoff_base: 1.0
+  rate_limit: 0.5                       # !!
+  rate_limit_backoff_base: 2.0
   rate_limit_max_retries: 5
   log_level: INFO
