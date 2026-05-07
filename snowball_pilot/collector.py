@@ -16,7 +16,7 @@ def _backoff(attempt, base):
     time.sleep(base * (2 ** attempt))
 
 
-def _paginate(method, key, params, max_results, backoff_base, max_retries):
+def _paginate(method, key, params, max_results, backoff_base, max_retries, rate_limit):
     """
     Calls any cursor-paginated AT Protocol method until results are exhausted 
     or max_results is hit, retrying on failure. 
@@ -31,6 +31,7 @@ def _paginate(method, key, params, max_results, backoff_base, max_retries):
                 if cursor:
                     p['cursor'] = cursor
                 resp = method(**p)
+                time.sleep(rate_limit)
                 batch = getattr(resp, key, []) or []
                 results.extend(batch)
                 cursor = getattr(resp, 'cursor', None)
@@ -118,9 +119,10 @@ def check_components(edges, component_type, min_size):
     for e in edges:
         G.add_edge(e['src'], e['dst'])
     if component_type == 'scc':
+        # scc
         components = list(nx.strongly_connected_components(G))
     else:
-        # wcc ignores edge direction, converges faster, standard for social nets
+        # wcc
         components = list(nx.weakly_connected_components(G))
     large = [c for c in components if len(c) >= min_size]
     return len(large), large
