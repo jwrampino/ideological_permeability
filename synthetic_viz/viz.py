@@ -186,10 +186,10 @@ def plot_giant_component(df, out_dir):
                                  y_text=0.30 + STRATEGIES.index(s) * 0.10)
 
         ax.axhline(0.5, color="#333", lw=1.2, ls="-", zorder=2,
-                   label="critical threshold (P_inf = 0.5)")
+                   label="collapse threshold (P_inf = 0.5)")
 
         ax.set_xlabel("bot density (rho)")
-        ax.set_ylabel("component size (P_inf = largest component / N)")
+        ax.set_ylabel("giant component size (P_inf = largest component / N)")
         ax.set_title("The connected network collapses under bot flooding: bridge targeting is fastest",
                      fontsize=12, fontweight="bold", pad=10)
         ax.text(0.5, -0.16, subtitle, transform=ax.transAxes,
@@ -267,7 +267,7 @@ def plot_Pinf_distribution(df, out_dir):
         df, metric="P_inf",
         ylabel="giant component size (P_inf)",
         title="Bridge targeting leaves the smallest surviving network across all conditions",
-        threshold=0.5, threshold_label="critical threshold (P_inf = 0.5)",
+        threshold=0.5, threshold_label="collapse threshold (P_inf = 0.5)",
         subtitle=subtitle,
         out_path=out_dir / "4_Pinf_distribution.png",
     )
