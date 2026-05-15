@@ -35,7 +35,6 @@ STYLE = {
     "ytick.labelsize":    9,
 }
 
-
 # synthetic data
 
 def make_synthetic():
@@ -186,11 +185,11 @@ def plot_giant_component(df, out_dir):
                                  y_text=0.30 + STRATEGIES.index(s) * 0.10)
 
         ax.axhline(0.5, color="#333", lw=1.2, ls="-", zorder=2,
-                   label="collapse threshold (P_inf = 0.5)")
+                   label=r"$P_{\infty} = 0.5$")
 
         ax.set_xlabel("bot density (rho)")
-        ax.set_ylabel("giant component size (P_inf = largest component / N)")
-        ax.set_title("The connected network collapses under bot flooding: bridge targeting is fastest",
+        ax.set_ylabel(r"Giant component size ($P_{\infty}$ = largest component / N)")
+        ax.set_title("Flooding the network requires the least bots under bridge targeting",
                      fontsize=12, fontweight="bold", pad=10)
         ax.text(0.5, -0.16, subtitle, transform=ax.transAxes,
                 ha="center", fontsize=8, color="#555", style="italic")
